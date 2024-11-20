@@ -1,0 +1,40 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                sh './mvnw clean package'
+            }
+        }
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t petclinic-app .'
+            }
+        }
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh """
+                    docker login -u $USERNAME -p $PASSWORD
+                    docker tag petclinic-app your-dockerhub-username/petclinic-app:latest
+                    docker push your-dockerhub-username/petclinic-app:latest
+                    """
+                }
+            }
+        }
+        stage('Deploy to AWS') {
+            steps {
+                sshagent(['ec2-ssh-credentials']) {
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ec2-user@your-ec2-public-ip << EOF
+                    docker pull your-dockerhub-username/petclinic-app:latest
+                    docker stop petclinic-container || true
+                    docker rm petclinic-container || true
+                    docker run -d -p 8081:8081 --name petclinic-container your-dockerhub-username/petclinic-app:latest
+                    EOF
+                    """
+                }
+            }
+        }
+    }
+}
